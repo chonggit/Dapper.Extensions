@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Data;
 using System.Linq;
 using System.Reflection;
-using System.Text;
 
 namespace Dapper.Extensions
 {
@@ -20,19 +19,21 @@ namespace Dapper.Extensions
         /// <param name="obj">需要转为 DynamicParameters 的实例</param>
         /// <param name="exclude">需要排除的属性字段</param>
         /// <returns>DynamicParameters</returns>
-        public static DynamicParameters CreateDynamicParameters(object obj, params string[] exclude)
+        private static DynamicParameters CreateDynamicParameters(object obj, string[] keyNames, string[] exclude)
         {
             var parameters = new DynamicParameters();
             // 遍历所有属性
             foreach (PropertyInfo property in GetProperties(obj.GetType()))
             {
+                var value = property.GetValue(obj, null);
                 // 属性是否是排除列表中
-                if (exclude?.Contains(property.Name) == true)
+                // 字段是为主键并且值为 null
+                if (exclude?.Contains(property.Name) == true || (keyNames?.Contains(property.Name) == true && value == null))
                 {
                     continue;
                 }
                 // 添加到 DynamicParameters
-                parameters.Add(property.Name, property.GetValue(obj, null));
+                parameters.Add(property.Name, value);
             }
             return parameters;
         }
@@ -47,7 +48,32 @@ namespace Dapper.Extensions
         /// <param name="tableName">添加或更新的表名</param>
         /// <param name="transaction">事务</param>
         /// <param name="exclude">要排除的 <paramref name="obj"/> 属性</param>
-        public static void Save(this IDbConnection connection, object obj, string[] keyNames, string tableName = null, IDbTransaction transaction = null, params string[] exclude)
+        public static int? Save(this IDbConnection connection, object obj, string[] keyNames, string tableName = null, IDbTransaction transaction = null, params string[] exclude)
+        {
+            DynamicParameters parameters = CreateDynamicParameters(obj, keyNames, exclude);
+            // 创建参数
+            if (CheckExists(connection, obj, keyNames, tableName ?? obj.GetType().Name, transaction))
+            {
+                // 更新数据
+                return Update(connection, parameters, keyNames, tableName ?? obj.GetType().Name, transaction);
+            }
+            else
+            {
+                // 添加数据
+                return Insert(connection, parameters, tableName ?? obj.GetType().Name, transaction);
+            }
+        }
+
+        /// <summary>
+        /// 检查记录是否已存在
+        /// </summary>
+        /// <param name="connection">db connection</param>
+        /// <param name="obj">添加或更新的实例</param>
+        /// <param name="keyNames">主键</param>
+        /// <param name="tableName">添加或更新的表名</param>
+        /// <param name="transaction">事务</param>
+        /// <returns>记录已存在返回 true，不存在返回 false</returns>
+        public static bool CheckExists(this IDbConnection connection, object obj, string[] keyNames, string tableName = null, IDbTransaction transaction = null)
         {
             var sqlBuilder = new SqlBuilder();
             foreach (var keyName in keyNames)
@@ -56,34 +82,10 @@ namespace Dapper.Extensions
                 sqlBuilder.Where($"{keyName}={connection.GetParameterName(keyName)}");
             }
             var template = sqlBuilder.AddTemplate($"select count(*) from {tableName ?? obj.GetType().Name} /**where**/");
-            // 创建参数
-            var parameters = CreateDynamicParameters(obj, exclude);
             // 以主键查询是否存在记录以此判断是添加或更新数据
-            int count = connection.ExecuteScalar<int>(template.RawSql, parameters, transaction);
-            if (count == 0)
-            {
-                // 添加数据
-                Insert(connection, parameters, tableName, transaction);
-            }
-            else
-            {
-                // 更新数据
-                Update(connection, parameters, keyNames, tableName, transaction);
-            }
-        }
-
-        /// <summary>
-        /// 添加数据
-        /// </summary>
-        /// <param name="connection">db connection</param>
-        /// <param name="obj">更新的实例</param>
-        /// <param name="tableName">更新的表名</param>
-        /// <param name="transaction">事务</param>
-        /// <param name="exclude">要排除的 <paramref name="obj"/> 属性</param>
-        /// <returns></returns>
-        public static int? Insert(this IDbConnection connection, object obj, string tableName = null, IDbTransaction transaction = null, params string[] exclude)
-        {
-            return Insert(connection, CreateDynamicParameters(obj, exclude), tableName ?? obj.GetType().Name, transaction);
+            int count = connection.ExecuteScalar<int>(template.RawSql, obj, transaction);
+            // 大于 0 数据库中已存在此笔记录
+            return count > 0;
         }
 
         /// <summary>
@@ -97,33 +99,13 @@ namespace Dapper.Extensions
         public static int? Insert(this IDbConnection connection, DynamicParameters parameters, string tableName, IDbTransaction transaction = null)
         {
             var sqlBuilder = new SqlBuilder();
-            var paramNames = new StringBuilder();
-            foreach (string name in parameters.ParameterNames)
+            var paramNames = string.Join(",", parameters.ParameterNames.Select(name =>
             {
-                if (paramNames.Length > 0)
-                {
-                    paramNames.Append(",");
-                }
-                paramNames.Append(connection.GetParameterName(name));
                 sqlBuilder.Select(name);
-            }
-            SqlBuilder.Template template = sqlBuilder.AddTemplate($"set nocount on;insert into {tableName}(/**select**/) values ({paramNames});select SCOPE_IDENTITY() id", parameters);
-            return connection.ExecuteScalar<int?>(template.RawSql, template.Parameters, transaction);
-        }
-
-        /// <summary>
-        /// 更新数据
-        /// </summary>
-        /// <param name="connection">db connection</param>
-        /// <param name="obj">更新的实例</param>
-        /// <param name="keyNames">更新的主键/条件参数</param>
-        /// <param name="tableName">更新的表名</param>
-        /// <param name="transaction">事务</param>
-        /// <param name="exclude">要排除的 <paramref name="obj"/> 属性</param>
-        /// <returns>更新受影响的行数</returns>
-        public static int Update(this IDbConnection connection, object obj, string[] keyNames, string tableName = null, IDbTransaction transaction = null, params string[] exclude)
-        {
-            return Update(connection, CreateDynamicParameters(obj, exclude), keyNames, tableName ?? obj.GetType().Name, transaction);
+                return GetParameterName(connection, name);
+            }));
+            var template = sqlBuilder.AddTemplate($"set nocount on;insert into {tableName}(/**select**/) values ({paramNames});select SCOPE_IDENTITY() id");
+            return connection.ExecuteScalar<int?>(template.RawSql, parameters, transaction);
         }
 
         /// <summary>
@@ -182,7 +164,7 @@ namespace Dapper.Extensions
         /// <param name="connection">db connection</param>
         /// <param name="name">实例属性名</param>
         /// <returns>数据库参数化的名称</returns>
-        private static string GetParameterName(this IDbConnection connection, string name)
+        public static string GetParameterName(this IDbConnection connection, string name)
         {
             // db connection 为 odbc
             if (connection.GetType().Name == "OdbcConnection")
