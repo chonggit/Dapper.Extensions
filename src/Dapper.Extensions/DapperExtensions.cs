@@ -32,6 +32,11 @@ namespace Dapper.Extensions
                 {
                     continue;
                 }
+                // 统一只保留到秒，日期类型在使用 Odbc 时会溢出
+                if ((property.PropertyType == typeof(DateTime) || property.PropertyType == typeof(DateTime?)) && value != null)
+                {
+                    value = DateTime.Parse(((DateTime)value).ToString());
+                }
                 // 添加到 DynamicParameters
                 parameters.Add(property.Name, value);
             }

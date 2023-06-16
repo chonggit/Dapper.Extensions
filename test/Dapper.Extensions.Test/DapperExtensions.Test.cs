@@ -75,11 +75,30 @@ namespace Dapper.Extensions.Test
             Assert.AreEqual(entry.Value, found.Value);
         }
 
+        [TestMethod]
+        public void OdbcDateTimeOverflowFixTest()
+        {
+            var entry = new TestEntry { Name = "name1", Value = "value1" };
+            entry.Id = odbcConnection.Save(new TestEntry { Name = "name1", Value = "value1", Now = DateTime.Now }, new string[] { "Id" });
+
+            Assert.IsNotNull(entry.Id);
+        }
+
+        [TestMethod]
+        public void SqlDateTimeOverflowFixTest()
+        {
+            var entry = new TestEntry { Name = "name1", Value = "value1" };
+            entry.Id = sqlConnection.Save(new TestEntry { Name = "name1", Value = "value1", Now = DateTime.Now }, new string[] { "Id" });
+
+            Assert.IsNotNull(entry.Id);
+        }
+
         public class TestEntry
         {
             public int? Id { get; set; }
             public string Name { get; set; }
             public string Value { get; set; }
+            public DateTime? Now { get; set; }
         }
 
         //[TestMethod]
