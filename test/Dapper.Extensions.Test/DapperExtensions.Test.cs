@@ -100,37 +100,5 @@ namespace Dapper.Extensions.Test
             public string Value { get; set; }
             public DateTime? Now { get; set; }
         }
-
-        //[TestMethod]
-        //public void CreateDynamicParametersTest()
-        //{
-        //    var parameters = DapperExtensions.CreateDynamicParameters(new { Id = 1, Name = "name" });
-
-        //    int id = parameters.Get<int>("Id");
-        //    string name = parameters.Get<string>("Name");
-
-        //    Assert.AreEqual(1, id);
-        //    Assert.AreEqual("name", name);
-        //}
-
-        //[TestMethod]
-        //public void CreateDynamicParametersExcludePropertyTest()
-        //{
-        //    var parameters = DapperExtensions.CreateDynamicParameters(new { Id = 1, Name = "name", Description = "desc" }, "Description");
-        //    bool contains = parameters.ParameterNames.Contains("Description");
-
-        //    Assert.IsFalse(contains);
-        //}
-
-        //[TestMethod]
-        //public void Test()
-        //{
-        //    _connection.Insert(new { Id = 1, Name = "name", Description = "desc" }, tableName: "TEST");
-        //}
-
-        //private static IDbConnection CreateConnection()
-        //{
-        //    return new SqliteConnection("Data Source=:memory:");
-        //}
     }
 }
