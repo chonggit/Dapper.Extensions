@@ -32,13 +32,15 @@ namespace Dapper.Extensions
                 {
                     continue;
                 }
-                // 统一只保留到秒，日期类型在使用 Odbc 时会溢出
+                // 处理日期类型在使用 Odbc 时会溢出，需要明确参数精度
                 if ((property.PropertyType == typeof(DateTime) || property.PropertyType == typeof(DateTime?)) && value != null)
                 {
-                    value = DateTime.Parse(((DateTime)value).ToString());
+                    parameters.Add(property.Name, value, size: 23, precision: 0, scale: 3);
                 }
-                // 添加到 DynamicParameters
-                parameters.Add(property.Name, value);
+                else
+                {
+                    parameters.Add(property.Name, value);
+                }
             }
             return parameters;
         }
@@ -114,6 +116,20 @@ namespace Dapper.Extensions
         }
 
         /// <summary>
+        /// 向数据库添加数据
+        /// </summary>
+        /// <param name="connection">db connection</param>
+        /// <param name="obj">需要添加的数据</param>
+        /// <param name="tableName">添加数据的表</param>
+        /// <param name="transaction">事务</param>
+        /// <param name="exclude">要排除的属性</param>
+        /// <returns>返回自增主键</returns>
+        public static int? Insert(this IDbConnection connection, object obj, string tableName = null, IDbTransaction transaction = null, params string[] exclude)
+        {
+            return Insert(connection, CreateDynamicParameters(obj, null, exclude), tableName ?? obj.GetType().Name, transaction);
+        }
+
+        /// <summary>
         /// 更新数据
         /// </summary>
         /// <param name="connection">db connection</param>
@@ -141,6 +157,21 @@ namespace Dapper.Extensions
             }
             var template = sqlBuilder.AddTemplate($"update {tableName} /**set**/ /**where**/", parameters);
             return connection.Execute(template.RawSql, template.Parameters, transaction);
+        }
+
+        /// <summary>
+        /// 更新数据
+        /// </summary>
+        /// <param name="connection">db connection</param>
+        /// <param name="obj">更新的数据</param>
+        /// <param name="keyNames">主键名称</param>
+        /// <param name="tableName">要添加的表</param>
+        /// <param name="transaction">事务</param>
+        /// <param name="exclude">需要排除的属性</param>
+        /// <returns></returns>
+        public static int Update(this IDbConnection connection, object obj, string[] keyNames, string tableName = null, IDbTransaction transaction = null, params string[] exclude)
+        {
+            return Update(connection, CreateDynamicParameters(obj, keyNames, exclude), keyNames, tableName ?? obj.GetType().Name, transaction);
         }
 
         /// <summary>
