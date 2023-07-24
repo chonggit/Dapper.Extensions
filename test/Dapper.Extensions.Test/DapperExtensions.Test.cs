@@ -1,4 +1,5 @@
 using Microsoft.Data.SqlClient;
+using System.Data;
 using System.Data.Odbc;
 
 namespace Dapper.Extensions.Test
@@ -36,7 +37,7 @@ namespace Dapper.Extensions.Test
         [TestMethod]
         public void OdbcTest()
         {
-            var entry = new TestEntry { Name = "name1", Value = "value1", Now = DateTime.Now };
+            var entry = new TestEntry { Name = "Odbc name1", Value = "Odbc value1", Now = DateTime.Now };
             // insert
             entry.Id = odbcConnection.Save(entry, new string[] { "Id" });
             // 是否已添加
@@ -45,7 +46,7 @@ namespace Dapper.Extensions.Test
             Assert.IsTrue(exists);
 
             // update 更新字段
-            entry.Name = "updated name";
+            entry.Name = "Odbc updated name";
             odbcConnection.Save(entry, new string[] { "Id" });
 
             var found = odbcConnection.QueryFirstOrDefault<TestEntry>($"select * from TestEntry where Id = {odbcConnection.GetParameterName("Id")}", entry);
@@ -54,7 +55,7 @@ namespace Dapper.Extensions.Test
             Assert.AreEqual(entry.Name, found.Name);
             Assert.AreEqual(entry.Value, found.Value);
 
-            var id = odbcConnection.Insert(new TestEntry { Name = "name2", Value = "value2", Now = DateTime.Now }, exclude: "Id");
+            var id = odbcConnection.Insert(new TestEntry { Name = "Odbc name2", Value = "Odbc value2", Now = DateTime.Now }, exclude: "Id");
             var count = odbcConnection.Update(entry, new string[] { "Id" });
 
             Assert.IsNotNull(id);
@@ -64,14 +65,14 @@ namespace Dapper.Extensions.Test
         [TestMethod]
         public void SqlTest()
         {
-            var entry = new TestEntry { Name = "name1", Value = "value1", Now = DateTime.Now };
+            var entry = new TestEntry { Name = "MS SQL name1", Value = "MS SQL value1", Now = DateTime.Now };
             entry.Id = sqlConnection.Save(entry, new string[] { "Id" });
 
             bool Exists = sqlConnection.CheckExists(entry, new string[] { "Id" });
 
             Assert.IsTrue(Exists);
 
-            entry.Name = "updated name";
+            entry.Name = "MS SQL updated name";
 
             sqlConnection.Save(entry, new string[] { "Id" });
 
@@ -81,7 +82,7 @@ namespace Dapper.Extensions.Test
             Assert.AreEqual(entry.Name, found.Name);
             Assert.AreEqual(entry.Value, found.Value);
 
-            var id = sqlConnection.Insert(new TestEntry { Name = "name2", Value = "value2", Now = DateTime.Now }, exclude: "Id");
+            var id = sqlConnection.Insert(new TestEntry { Name = "MS SQL name2", Value = "MS SQL value2", Now = DateTime.Now }, exclude: "Id");
             var count = sqlConnection.Update(entry, new string[] { "Id" });
 
             Assert.IsNotNull(id);
@@ -91,7 +92,7 @@ namespace Dapper.Extensions.Test
         [TestMethod]
         public void OdbcDateTimeOverflowFixTest()
         {
-            var entry = new TestEntry { Name = "name1", Value = "value1" , Now = DateTime.Now };
+            var entry = new TestEntry { Name = "name1", Value = "value1", Now = DateTime.Now };
             entry.Id = odbcConnection.Save(entry, new string[] { "Id" });
 
             Assert.IsNotNull(entry.Id);

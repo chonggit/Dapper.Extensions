@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 
 namespace Dapper.Extensions
 {
@@ -72,6 +73,32 @@ namespace Dapper.Extensions
         }
 
         /// <summary>
+        /// 保存
+        /// 添加或更新数据
+        /// </summary>
+        /// <param name="connection">db connection</param>
+        /// <param name="obj">添加或更新的实例</param>
+        /// <param name="keyNames">主键</param>
+        /// <param name="tableName">添加或更新的表名</param>
+        /// <param name="transaction">事务</param>
+        /// <param name="exclude">要排除的 <paramref name="obj"/> 属性</param>
+        public static async Task<int?> SaveAsync(this IDbConnection connection, object obj, string[] keyNames, string tableName = null, IDbTransaction transaction = null, params string[] exclude)
+        {
+            DynamicParameters parameters = CreateDynamicParameters(obj, keyNames, exclude);
+            // 创建参数
+            if (await CheckExistsAsync(connection, obj, keyNames, tableName ?? obj.GetType().Name, transaction))
+            {
+                // 更新数据
+                return await UpdateAsync(connection, parameters, keyNames, tableName ?? obj.GetType().Name, transaction);
+            }
+            else
+            {
+                // 添加数据
+                return await InsertAsync(connection, parameters, tableName ?? obj.GetType().Name, transaction);
+            }
+        }
+
+        /// <summary>
         /// 检查记录是否已存在
         /// </summary>
         /// <param name="connection">db connection</param>
@@ -82,17 +109,40 @@ namespace Dapper.Extensions
         /// <returns>记录已存在返回 true，不存在返回 false</returns>
         public static bool CheckExists(this IDbConnection connection, object obj, string[] keyNames, string tableName = null, IDbTransaction transaction = null)
         {
+            var template = CreateCheckExistsTemplate(connection, obj, keyNames, tableName);
+            // 以主键查询是否存在记录以此判断是添加或更新数据
+            int count = connection.ExecuteScalar<int>(template.RawSql, obj, transaction);
+            // 大于 0 数据库中已存在此笔记录
+            return count > 0;
+        }
+
+        /// <summary>
+        /// 检查记录是否已存在
+        /// </summary>
+        /// <param name="connection">db connection</param>
+        /// <param name="obj">添加或更新的实例</param>
+        /// <param name="keyNames">主键</param>
+        /// <param name="tableName">添加或更新的表名</param>
+        /// <param name="transaction">事务</param>
+        /// <returns>记录已存在返回 true，不存在返回 false</returns>
+        public static async Task<bool> CheckExistsAsync(this IDbConnection connection, object obj, string[] keyNames, string tableName = null, IDbTransaction transaction = null)
+        {
+            var template = CreateCheckExistsTemplate(connection, obj, keyNames, tableName);
+            // 以主键查询是否存在记录以此判断是添加或更新数据
+            int count = await connection.ExecuteScalarAsync<int>(template.RawSql, obj, transaction);
+            // 大于 0 数据库中已存在此笔记录
+            return count > 0;
+        }
+
+        private static SqlBuilder.Template CreateCheckExistsTemplate(IDbConnection connection, object obj, string[] keyNames, string tableName = null)
+        {
             var sqlBuilder = new SqlBuilder();
             foreach (var keyName in keyNames)
             {
                 // 添加主键参数
                 sqlBuilder.Where($"{keyName}={connection.GetParameterName(keyName)}");
             }
-            var template = sqlBuilder.AddTemplate($"select count(*) from {tableName ?? obj.GetType().Name} /**where**/");
-            // 以主键查询是否存在记录以此判断是添加或更新数据
-            int count = connection.ExecuteScalar<int>(template.RawSql, obj, transaction);
-            // 大于 0 数据库中已存在此笔记录
-            return count > 0;
+            return sqlBuilder.AddTemplate($"select count(*) from {tableName ?? obj.GetType().Name} /**where**/");
         }
 
         /// <summary>
@@ -105,14 +155,40 @@ namespace Dapper.Extensions
         /// <returns>返回自增主键</returns>
         public static int? Insert(this IDbConnection connection, DynamicParameters parameters, string tableName, IDbTransaction transaction = null)
         {
+            var template = CreateInsertTemplate(connection, parameters, tableName);
+            return connection.ExecuteScalar<int?>(template.RawSql, parameters, transaction);
+        }
+
+        /// <summary>
+        /// 添加数据
+        /// </summary>
+        /// <param name="connection">db connection</param>
+        /// <param name="parameters">添加参数</param>
+        /// <param name="tableName">添加数据的表</param>
+        /// <param name="transaction">事务</param>
+        /// <returns>返回自增主键</returns>
+        public static Task<int?> InsertAsync(this IDbConnection connection, DynamicParameters parameters, string tableName, IDbTransaction transaction = null)
+        {
+            var template = CreateInsertTemplate(connection, parameters, tableName);
+            return connection.ExecuteScalarAsync<int?>(template.RawSql, parameters, transaction);
+        }
+
+        /// <summary>
+        /// 生成 insert 模版
+        /// </summary>
+        /// <param name="connection">db connection</param>
+        /// <param name="parameters">添加参数</param>
+        /// <param name="tableName">添加数据的表</param>
+        /// <returns></returns>
+        private static SqlBuilder.Template CreateInsertTemplate(IDbConnection connection, DynamicParameters parameters, string tableName)
+        {
             var sqlBuilder = new SqlBuilder();
             var paramNames = string.Join(",", parameters.ParameterNames.Select(name =>
             {
                 sqlBuilder.Select(name);
                 return GetParameterName(connection, name);
             }));
-            var template = sqlBuilder.AddTemplate($"set nocount on;insert into {tableName}(/**select**/) values ({paramNames});select SCOPE_IDENTITY() id");
-            return connection.ExecuteScalar<int?>(template.RawSql, parameters, transaction);
+            return sqlBuilder.AddTemplate($"set nocount on;insert into {tableName}(/**select**/) values ({paramNames});select SCOPE_IDENTITY() id");
         }
 
         /// <summary>
@@ -130,6 +206,20 @@ namespace Dapper.Extensions
         }
 
         /// <summary>
+        /// 向数据库添加数据
+        /// </summary>
+        /// <param name="connection">db connection</param>
+        /// <param name="obj">需要添加的数据</param>
+        /// <param name="tableName">添加数据的表</param>
+        /// <param name="transaction">事务</param>
+        /// <param name="exclude">要排除的属性</param>
+        /// <returns>返回自增主键</returns>
+        public static Task<int?> InsertAsync(this IDbConnection connection, object obj, string tableName = null, IDbTransaction transaction = null, params string[] exclude)
+        {
+            return InsertAsync(connection, CreateDynamicParameters(obj, null, exclude), tableName ?? obj.GetType().Name, transaction);
+        }
+
+        /// <summary>
         /// 更新数据
         /// </summary>
         /// <param name="connection">db connection</param>
@@ -139,6 +229,27 @@ namespace Dapper.Extensions
         /// <param name="transaction">事务</param>
         /// <returns>更新受影响的行数</returns>
         public static int Update(this IDbConnection connection, DynamicParameters parameters, string[] keyNames, string tableName, IDbTransaction transaction = null)
+        {
+            var template = CreateUpdateTemplate(connection, parameters, keyNames, tableName);
+            return connection.Execute(template.RawSql, parameters, transaction);
+        }
+
+        /// <summary>
+        /// 更新数据
+        /// </summary>
+        /// <param name="connection">db connection</param>
+        /// <param name="parameters">更新参数</param>
+        /// <param name="tableName">更新的表名</param>
+        /// <param name="keyNames">更新的主键/条件参数</param>
+        /// <param name="transaction">事务</param>
+        /// <returns>更新受影响的行数</returns>
+        public static Task<int> UpdateAsync(this IDbConnection connection, DynamicParameters parameters, string[] keyNames, string tableName, IDbTransaction transaction = null)
+        {
+            var template = CreateUpdateTemplate(connection, parameters, keyNames, tableName);
+            return connection.ExecuteAsync(template.RawSql, parameters, transaction);
+        }
+
+        private static SqlBuilder.Template CreateUpdateTemplate(IDbConnection connection, DynamicParameters parameters, string[] keyNames, string tableName)
         {
             var sqlBuilder = new SqlBuilder();
             foreach (string name in parameters.ParameterNames)
@@ -155,8 +266,7 @@ namespace Dapper.Extensions
                     sqlBuilder.Set($"{name}={connection.GetParameterName(name)}");
                 }
             }
-            var template = sqlBuilder.AddTemplate($"update {tableName} /**set**/ /**where**/", parameters);
-            return connection.Execute(template.RawSql, template.Parameters, transaction);
+            return sqlBuilder.AddTemplate($"update {tableName} /**set**/ /**where**/", parameters);
         }
 
         /// <summary>
@@ -172,6 +282,21 @@ namespace Dapper.Extensions
         public static int Update(this IDbConnection connection, object obj, string[] keyNames, string tableName = null, IDbTransaction transaction = null, params string[] exclude)
         {
             return Update(connection, CreateDynamicParameters(obj, keyNames, exclude), keyNames, tableName ?? obj.GetType().Name, transaction);
+        }
+
+        /// <summary>
+        /// 更新数据
+        /// </summary>
+        /// <param name="connection">db connection</param>
+        /// <param name="obj">更新的数据</param>
+        /// <param name="keyNames">主键名称</param>
+        /// <param name="tableName">要添加的表</param>
+        /// <param name="transaction">事务</param>
+        /// <param name="exclude">需要排除的属性</param>
+        /// <returns></returns>
+        public static Task<int> UpdateAsync(this IDbConnection connection, object obj, string[] keyNames, string tableName = null, IDbTransaction transaction = null, params string[] exclude)
+        {
+            return UpdateAsync(connection, CreateDynamicParameters(obj, keyNames, exclude), keyNames, tableName ?? obj.GetType().Name, transaction);
         }
 
         /// <summary>
